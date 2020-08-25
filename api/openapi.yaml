@@ -1,0 +1,5146 @@
+openapi: 3.0.0
+info:
+  contact:
+    email: support@smtp.com
+    name: SMTP.com support
+  description: SMTP.com Public API v4
+  license:
+    name: Apache 2.0
+  termsOfService: https://www.smtp.com/policies/terms-and-conditions.aspx
+  title: SMTP Public API overview
+  version: 4.0.0
+servers:
+- description: Production Server
+  url: https://api.smtp.com
+tags:
+- description: |
+    Returns event aggregates for the specified data slices and duration.
+  name: Statistics
+- description: |
+    Return and update basic account information: first name, last name, email, company name, phone etc.
+  name: Account
+- description: |
+    Channels, also known as senders, correspond to specific sending channels. For example an account may send email for various areas of their business including marketing, office communications, customer communications, reminders and notifications.
+
+    Channels will have their unique (system-wide) SMTP username and password for SMTP delivery and they can have their quota specified, which will be added up to the Account's total quota.
+  name: Channels
+- description: |
+    API keys can be setup and configured for the account. All API keys have similar access level and will let you differentiate and audit the API usage for different API users.
+  name: API keys
+- description: |
+    Deliver a periodic report of a channel/account activity. Frequency of reports can be one of: daily, weekly, monthly. Daily will be sent for the previous day, weekly - on Monday, for the previous week, monthly - on the first day for the previous month. If frequency is not specified, the report will be scheduled to be generated immediately, and can be retrieved from an URL once it is ready to download.
+  name: Reports
+- description: |
+    Setup, configure and delete custom alerts. Alerts are emails that are delivered to the account owner’s email address when a given alert condition is met.
+
+    Currently a monthly quota usage alert defined which will trigger at a specific threshold of account’s monthly quota.
+  name: Alerts
+- description: |
+    DKIM key settings can be created and updated for each registered domain.
+
+    A domain must be registered and verified for the account first, before one can add any DKIM keys. DKIM key will pass a validation, when added, and if there is no correct public key available, the DKIM key will be rejected.
+  name: DKIMs
+- description: |
+    Callbacks, also known as web notifications or web hooks, allow user to be notified about any kind of events. Callbacks will be sent over HTTP POST to a URL, specified during callback creation or to Amazon SQS queue. You can see the most recent callback attempts log to troubleshoot missing callbacks.
+
+
+    Usually, when we receive a non-positive response from a callback URL (non-2xx status), we are retrying this callback several times (depending on our internal settings), until we give up and discard it forever.
+
+
+    Please note, that we try to batch callback data into convenient data packages of variable size (depending on the Callback Engine's state and settings) and do not fire them one-by-one to avoid stressing both a callback end-point and our Engine. Also note that callbacks must be created on a per-channel basis.
+  name: Callbacks
+- description: |
+    Access to detailed information regarding all messages and their events. Unlike callbacks, which are fired with an event’s information as they happen in real time, this resource provides a report over a specific time period on demand. You can specify the level of detail such as: all, delivered, bounced, domain, channel slice, time interval etc.
+
+    The detailed statistics are provided only for the last 7 calendar days not including today, (e.g. on Jan 30 it would return events from Jan 23 00:00 UTC to Jan 30 23:59 UTC) and should be requested on a per-channel basis (i.e. there are no account wide detailed statistics).
+
+    Because it's an intensive call, both limit and offset are required.
+
+    The returned data is sorted by an event time, ascending (earlier events first).
+  name: Messages
+paths:
+  /v4/stats/{duration}/{slice}/{slice_specifier}/{group_by}:
+    get:
+      description: |
+        **Get stats for a period**<br>
+        Request:<br>
+        */v4/stats/last_day*<br>
+        */v4/stats?start=Tue%2C%2016%20Jan%2015%3A14%3A29%20%2B0000*<br>
+        Response:<br>
+        ```
+        {"accepted": 300, "delivered": 100, "complained": 0, "failed": 50, "bounced": 150, "queued": 0}
+        ```
+        <br><br>
+        **Get stats for a period, grouped by channel**<br>
+        Request:<br>
+        */v4/stats/last_day/channel*<br>
+        Response:<br>
+        ```
+        {"channel1": {"accepted": 30, "delivered": 10, "complained": 0, "failed": 5, "bounced": 15, "queued": 0}, "channel2": {"accepted": 0, "delivered": 0, "complained": 0, "failed": 0, "bounced": 0, "queued": 0}}
+        ```
+        <br><br>
+        **Get stats for specific sending domain and channel (sender) and period, grouped by ISP**<br>
+        Request:<br>
+        */v4/stats/last_day/channel/marketing/domain/smtp.com/rcpt_isp*<br>
+        Response:<br>
+        ```
+        {"yahoo": {"accepted": 30, "delivered": 10, "complained": 0, "failed": 5, "bounced": 15, "queued": 0}, "google": {"accepted": 0, "delivered": 0, "complained": 0, "failed": 0, "bounced": 0, "queued": 0}}
+        ```
+      parameters:
+      - description: The starting time. Required if the `{duration}` path parameter
+          is not specified. RFC 2822 or UNIX epoch format.
+        explode: true
+        in: query
+        name: start
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: The ending time. If not specified, defaults to now. RFC 2822
+          or UNIX epoch format.
+        explode: true
+        in: query
+        name: end
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: |
+          A standardized shorthand for a known start/end bracket. Duration automatically supersedes start/end values provided as query string parameters. One of either the `{duration}` path parameter or the `start` query parameter must be specified.
+           <table>
+           <tr><th>Value</th><th>Start</th><th>End</th><th>Slicable</th></tr>
+           <tr><td>last_24hrs</td><td>84,400 seconds ago</td><td>Now</td><td>yes</td></tr>
+           <tr><td>last_30days</td><td>18,144,000 seconds ago</td><td>Now</td><td>yes</td></tr>
+           <tr><td>last_7days</td><td>604,800 seconds ago</td><td>Now</td><td>yes</td></tr>
+           <tr><td>last_day</td><td>00:00:00 of the previous day</td><td>23:59:59 of the previous day</td><td>yes</td></tr>
+           <tr><td>last_hour</td><td>00:00 of the previous hour</td><td>59:59 of the previous hour</td><td>yes</td></tr>
+           <tr><td>last_month or mtd</td><td>1st day 00:00:00 of previous month</td><td>23:59:59 last day of previous month</td><td>yes</td></tr>
+           <tr><td>last_week</td><td>Monday 00:00:00 of previous week</td><td>Sunday 23:59:59 of previous week</td><td>yes</td></tr>
+           <tr><td>this_day</td><td>00:00:00 of current day</td><td>Now</td><td>yes</td></tr>
+           <tr><td>this_hour</td><td>00:00 of current clock hour</td><td>Now</td><td>yes</td></tr>
+           <tr><td>this_month</td><td>1st day 00:00:00 of current month</td><td>Now</td><td>yes</td></tr>
+           <tr><td>this_week</td><td>Monday 00:00:00 of current week</td><td>Now</td><td>yes</td></tr>
+           <tr><td>last_year</td><td> Jan 1st 00:00:00 of previous year</td><td>Dec 31st 23:59:59 of previous year</td><td>no</td></tr>
+           <tr><td>this_year or ytd</td><td>Jan 1st  00:00:0 of current year</td><td>Now</td><td>no</td></tr>
+           <tr><td>total</td><td>Account creation date</td><td>Now</td><td>no</td></tr>
+           </table>
+        explode: false
+        in: path
+        name: duration
+        required: true
+        schema:
+          enum:
+          - last_hour
+          - last_day
+          - last_week
+          - last_month
+          - this_hour
+          - this_day
+          - this_week
+          - this_month
+          - last_24hrs
+          - last_7days
+          - last_30days
+          - mtd
+          - total
+          - this_year
+          - ytd
+          - last_year
+          type: string
+        style: simple
+      - description: "A reducing method which can be applied to the requested duration.\
+          \ A final slice without an optional slice specifier will define a grouping.\n\
+          \nPossible Values:\n * `channel`: (optional) A given account's sender\n\
+          \ * `domain`: (optional) Sending domain\n * `rcpt_domain`: (optional) Recieving\
+          \ domain\n * `rcpt_isp`: (optional) Receiving ISP\n \n \nSlices can be chained\
+          \ in a meaningful way – for example:\n  ```\n  /last_month/channel/marketing/domain/smtp.com/rcpt_domain?event=complained\n\
+          \  ```\nwould produce an aggregate of complaints for a current account’\
+          s channel (sender) called “marketing” which were:\n  * sent from the registered\
+          \ email domain “smtp.com”, and \n  * are grouped by receiving domains\n\
+          \  \n  \nThe response would look something like:\n  ```\n  {“google.com”\
+          : {“complained”: 5}, “yahoo.com”: {“complained”:1}, “aol.com”: {“complained”\
+          :1}}\n  ```\n"
+        explode: false
+        in: path
+        name: slice
+        required: true
+        schema:
+          enum:
+          - channel
+          - domain
+          - rcpt_domain
+          - rcpt_isp
+          type: string
+        style: simple
+      - description: slice value (smtp.com, sender1)
+        explode: false
+        in: path
+        name: slice_specifier
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: |
+          Define a grouping:
+           * `channel` - optionally to be followed by a channel ID or name specifier
+           * `domain`  - optionally to be followed by a registered domain name
+           * `rcpt_domain` - optionally to be followed by a registered domain name
+           * `rcpt_isp` - optionally to be followed by a registered domain name
+        explode: false
+        in: path
+        name: group_by
+        required: true
+        schema:
+          enum:
+          - channel
+          - domain
+          - rcpt_domain
+          - rcpt_isp
+          type: string
+        style: simple
+      - description: Array of any event names for which stats has been requested.
+        explode: true
+        in: query
+        name: event
+        required: false
+        schema:
+          enum:
+          - accepted
+          - delivered
+          - failed
+          - hard
+          - queued
+          - opened
+          - clicked
+          - unsubscribed
+          - complained
+          type: string
+        style: form
+      - description: Maximum number of items to return.
+        explode: true
+        in: query
+        name: limit
+        required: true
+        schema:
+          format: int32
+          maximum: 1000
+          minimum: 1
+          type: integer
+        style: form
+      - description: Number of items to skip before returning the results.
+        explode: true
+        in: query
+        name: offset
+        required: true
+        schema:
+          format: int32
+          minimum: 0
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+          description: Get stats
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Return event aggregates for the specified slices and duration. Slices
+        can be chained.
+      tags:
+      - Statistics
+  /v4/account/:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  status: active
+                  phone: 16175555555
+                  first_name: John
+                  last_name: Smith
+                  company_name: ACME
+                  address:
+                    city: Carcer City
+                    state: NJ
+                    street: 1 Wapona Hills
+                    country: United States
+                  usage: 0
+                  date_created: 1516885463
+                  website: n/a
+                  email: johh.smith@carcer.city
+              schema:
+                $ref: '#/components/schemas/Account'
+          description: Get Account Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Account Details
+      tags:
+      - Account
+  /v4/account/contact:
+    patch:
+      parameters:
+      - description: First name of account owner
+        explode: true
+        in: query
+        name: first_name
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Last name of account owner
+        explode: true
+        in: query
+        name: last_name
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Email address of account owner
+        explode: true
+        in: query
+        name: email
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Account owner’s company name
+        explode: true
+        in: query
+        name: company_name
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Phone number of account owner
+        explode: true
+        in: query
+        name: phone
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Website of account owner
+        explode: true
+        in: query
+        name: website
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Account owner’s street address
+        explode: true
+        in: query
+        name: address.street
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Account owner’s city
+        explode: true
+        in: query
+        name: address.city
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Account owner’s state
+        explode: true
+        in: query
+        name: address.state
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Account owner’s country
+        explode: true
+        in: query
+        name: address.country
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  account: updated
+              schema:
+                $ref: '#/components/schemas/UpdateAccountResponse'
+          description: Update Account Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Account Details
+      tags:
+      - Account
+  /v4/channels/:
+    get:
+      description: |
+        **Note:** This method does not return archived channels.
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  items:
+                  - status: cancelled
+                    quota: 20
+                    name: mysender
+                    usage: 0
+                    date_created: 1507958155
+                    smtp_username: myusername@smtp.com
+              schema:
+                $ref: '#/components/schemas/Channels'
+          description: Get All Channels
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get All Channels
+      tags:
+      - Channels
+    post:
+      parameters:
+      - description: Name of the channel (sender)
+        explode: true
+        in: query
+        name: name
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Username for the channel
+        explode: true
+        in: query
+        name: smtp_username
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Password for the channel
+        explode: true
+        in: query
+        name: smtp_password
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Quota for the channel
+        explode: true
+        in: query
+        name: quota
+        required: true
+        schema:
+          format: int32
+          minimum: 1
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+          description: Create a New Channel
+          links:
+            GetChannelByLabel:
+              description: |
+                The `name` value returned in the response can be used as the `channel_name` parameter in `GET /v4/channels/{channel_name}`.
+              operationId: getSender
+              parameters:
+                channel_name: $response.body#/data.name
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create a New Channel
+      tags:
+      - Channels
+  /v4/channels/{name}:
+    delete:
+      description: |
+        **Note:** This method doesn’t permanently delete the channel but rather sets the status to “canceled”.
+      parameters:
+      - description: Name of the channel (sender)
+        explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+          description: Delete a Channel
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete a Channel
+      tags:
+      - Channels
+    get:
+      description: |
+        **Note:** This method doesn't return archived channels.
+      operationId: getSender
+      parameters:
+      - description: Name of the channel (sender)
+        explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+          description: Get Channel Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Channel Details
+      tags:
+      - Channels
+    patch:
+      parameters:
+      - description: Name of the channel (sender)
+        explode: false
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Username for the channel
+        explode: true
+        in: query
+        name: smtp_username
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Password for the channel
+        explode: true
+        in: query
+        name: smtp_password
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Quota for the channel
+        explode: true
+        in: query
+        name: quota
+        required: false
+        schema:
+          format: int32
+          minimum: 1
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+          description: Update Channel Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Channel Details
+      tags:
+      - Channels
+  /v4/domains/:
+    get:
+      description: Returns all domains registered by this account
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  items:
+                  - domain_name: smtp.com
+                    enabled: true
+                  - domain_name: smtpsend.com
+                    enabled: false
+              schema:
+                $ref: '#/components/schemas/GetDomainsResponse'
+          description: Get Domains
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get All Registered Domains
+      tags:
+      - DKIMs
+    post:
+      description: Add a new domain to the list of account's registered domains
+      parameters:
+      - description: Domain name to add
+        explode: true
+        in: query
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  domain_name: created
+              schema:
+                $ref: '#/components/schemas/CreateDomainResponse'
+          description: Register a Domain
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Register a Domain
+      tags:
+      - DKIMs
+  /v4/domains/{domain_name}:
+    delete:
+      description: Deletes a domain that was previously registered by the current
+        account.
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  domain: deleted
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete Domain
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete Domain
+      tags:
+      - DKIMs
+    get:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  domain_name: smtp.com
+                  enabled: true
+              schema:
+                $ref: '#/components/schemas/GetDomainDetailsResponse'
+          description: Get Domain Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Domain Details
+      tags:
+      - DKIMs
+    patch:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Whether the domain is enabled
+        explode: true
+        in: query
+        name: enabled
+        required: true
+        schema:
+          type: boolean
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  domain: updated
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Update Domain Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Domain Details
+      tags:
+      - DKIMs
+  /v4/domains/{domain_name}/dkim_keys:
+    delete:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  dkim_key: deleted
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete DKIM for Domain
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete DKIM for Domain
+      tags:
+      - DKIMs
+    get:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  domain_name: smtp.com
+                  is_valid: true
+                  selector: selector
+                  private_key: private_key
+              schema:
+                $ref: '#/components/schemas/GetDomainDetails'
+          description: Get DKIM for Domain
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get DKIM for Domain
+      tags:
+      - DKIMs
+    patch:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Name of DKIM selector for this domain
+        explode: true
+        in: query
+        name: selector
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Private key of the DKIM record
+        explode: true
+        in: query
+        name: private_key
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  dkim_key: updated
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Update DKIM Key Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update DKIM Key Details
+      tags:
+      - DKIMs
+    post:
+      parameters:
+      - description: Domain name of interest
+        explode: false
+        in: path
+        name: domain_name
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Name of DKIM selector for this domain
+        explode: true
+        in: query
+        name: selector
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Private key of the DKIM record
+        explode: true
+        in: query
+        name: private_key
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  dkim_key: created
+              schema:
+                $ref: '#/components/schemas/CreateDkimKey'
+          description: Add DKIM for Domain
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Add DKIM for Domain
+      tags:
+      - DKIMs
+  /v4/api_keys/:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  items:
+                  - status: active
+                    description: null
+                    key: 48c3c53b7a05179a79b20a8861f63272a0c8ebf2
+                    date_created: 1516882099
+                    name: new key
+                  - status: active
+                    description: API Key description
+                    key: 1c12172928b942efc3083c17f656397703569428
+                    date_created: 1507958499
+                    name: Default Key
+              schema:
+                $ref: '#/components/schemas/GetApiKeys'
+          description: List All API Keys
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: List All API Keys
+      tags:
+      - API keys
+    post:
+      parameters:
+      - description: Name for API key
+        explode: true
+        in: query
+        name: name
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Description for API key
+        explode: true
+        in: query
+        name: description
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+          description: Create a New API Key
+          links:
+            GetAPIKey:
+              description: |
+                The `key` value returned in this response can be used as the `api_key` parameter in `GET /v4/api_keys/{api_key}`.
+              operationId: getAPIKey
+              parameters:
+                api_key: $response.body#/data.key
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create a New API Key
+      tags:
+      - API keys
+  /v4/api_keys/{api_key}:
+    delete:
+      parameters:
+      - description: API key value
+        explode: false
+        in: path
+        name: api_key
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete an API Key
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete an API Key
+      tags:
+      - API keys
+    get:
+      operationId: getAPIKey
+      parameters:
+      - description: API Key Identificator.
+        explode: false
+        in: path
+        name: api_key
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+          description: Get API Key
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get API Key Details
+      tags:
+      - API keys
+    patch:
+      parameters:
+      - description: API key value
+        explode: false
+        in: path
+        name: api_key
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Name for API key
+        explode: true
+        in: query
+        name: name
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Description for API Key
+        explode: true
+        in: query
+        name: description
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKey'
+          description: Update API Key
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update API Key
+      tags:
+      - API keys
+  /v4/reports/:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  periodic:
+                  - frequency: daily
+                    events: delivered+bounced
+                    channel: '-'
+                    report_id: bad1294e3920d3c559cf46f9396d681a
+                    report_time: 10
+                  - frequency: weekly
+                    events: delivered+bounced
+                    channel: advert
+                    report_id: 3e84ab6d7900156e8876605688cd4d37
+                    report_time: 23
+                  ondemand:
+                  - status: done
+                    name: 2018-02-02(00)_2018-02-03(00) (delivered + bounced)
+                    url: http://api.go.qa.smtp.com/csv/521dc2f03f3505a6d510a13cda80c6a2.zip
+                    time_req: 1517659262
+                    progress: 100%
+                    channel: '-'
+                    report_id: 521dc2f03f3505a6d510a13cda80c6a2
+                  - status: done
+                    name: 2018-02-01(00)_2018-02-02(00) (delivered + bounced)
+                    url: http://api.go.qa.smtp.com/csv/03b9e30a728159c630ff168b902b1f48.zip
+                    time_req: 1517572862
+                    progress: 100%
+                    channel: mychannel
+                    report_id: 03b9e30a728159c630ff168b902b1f48
+              schema:
+                $ref: '#/components/schemas/Reports'
+          description: Get All Reports
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get All Reports
+      tags:
+      - Reports
+  /v4/reports/ondemand:
+    post:
+      parameters:
+      - description: Name of the channel for which a given report has been defined
+        explode: true
+        in: query
+        name: channel
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Type or report format. If not specified defaults to “csv” - currently
+          the only supported type
+        explode: true
+        in: query
+        name: type
+        required: false
+        schema:
+          enum:
+          - csv
+          type: string
+        style: form
+      - description: Start date/time of the report in RFC 2822 or UNIX epoch format
+        explode: true
+        in: query
+        name: start
+        required: true
+        schema:
+          type: integer
+        style: form
+      - description: End date/time of the report in RFC 2822 or UNIX epoch format
+          (default - now)
+        explode: true
+        in: query
+        name: end
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Filter by the “from” domain of emails
+        explode: true
+        in: query
+        name: domain
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Filter by the “to” domain of emails
+        explode: true
+        in: query
+        name: rcpt_domain
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "Filter by event type. Valid event are: \n* hard_bounced - just\
+          \ hard bounces\n* failed - all failed messages, i.e. hard_bounced + the\
+          \ rest of failed\n* delivered - delivered messages\n* sent - delivered+failed\
+          \ (default events value)\n* pending - pending messages\n* total - all messages,\
+          \ i.e. sent+pending\n* abuse - spam complaints\n"
+        explode: true
+        in: query
+        name: events
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "Array of columns to be specified in the report. These can differ\
+          \ based on any specified event type filter. \n\nPossible column values for\
+          \ all reports are:\n* `message_id` - Unique message ID\n* from - From Address\n\
+          * to - Recipient Address\n* time_rcv - Date Received in RFC 2822 or UNIX\
+          \ epoch format\n* time_snt - Date Delivered in RFC 2822 or UNIX epoch format\n\
+          * channel - Name of a channel\n\nAdditional column values for message reports\
+          \ (hard_bounced, failed, delivered, total) include:\n* status - Status of\
+          \ delivery\n* code - SMTP Response Code\n* message - SMTP Response message\n\
+          * tries - Amount of re-tries (deferred states before final)\n\nAdditional\
+          \ column values for spam reports include: \n* report_time - Date when an\
+          \ abuse complaint has been reported, RFC 2822 or UNIX epoch format\n* subject\
+          \ - Email Subject\n\nAdditional column values for pending reports include:\
+          \ \n* status - Current email status\n\nIf not specified all relevant columns\
+          \ are included.\n"
+        explode: true
+        in: query
+        name: columns
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Create On-Demand Report
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create On-Demand Report
+      tags:
+      - Reports
+  /v4/reports/{report_id}:
+    get:
+      parameters:
+      - description: ID of a given report
+        explode: false
+        in: path
+        name: report_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: Get Report Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Report Details
+      tags:
+      - Reports
+  /v4/reports/periodic:
+    post:
+      parameters:
+      - description: |
+          Report frequency – one of:
+            * daily - every day at a specified hour
+            * weekly  - Mondays at a specified hour
+            * monthly - 1st day of the month at a specified hour
+        explode: true
+        in: query
+        name: frequency
+        required: true
+        schema:
+          enum:
+          - monthly
+          - weekly
+          - daily
+          type: string
+        style: form
+      - description: The hour at which the report should be sent. Value values range
+          from 0 to 23
+        explode: true
+        in: query
+        name: report_time
+        required: true
+        schema:
+          type: integer
+        style: form
+      - description: Name of the channel for which a given report has been defined
+        explode: true
+        in: query
+        name: channel
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Notification method to be used when report is completed and can
+          be downloaded
+        explode: true
+        in: query
+        name: notify_method
+        required: false
+        schema:
+          enum:
+          - http_post
+          type: string
+        style: form
+      - description: |
+          A valid URL which will accept the report completion notification.
+          The payload will be
+          ```
+            {"message": "success", "id": string}
+          ```
+          where `id` is a Unique report ID
+        explode: true
+        in: query
+        name: notify_dest
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Filter by the “From” domain of emails
+        explode: true
+        in: query
+        name: domain
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Filter by the “To” domain of emails
+        explode: true
+        in: query
+        name: rcpt_domain
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "Filter by event type. Valid event are: \n* hard_bounced - just\
+          \ hard bounces\n* failed - all failed messages, i.e. hard_bounced + the\
+          \ rest of failed\n* delivered - delivered messages\n* sent - delivered+failed\
+          \ (default events value)\n* pending - pending messages\n* total - all messages,\
+          \ i.e. sent+pending\n* abuse - spam complaints\n"
+        explode: true
+        in: query
+        name: events
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: "Array of columns to be specified in the report. These can differ\
+          \ based on any specified event type filter. \n\nPossible column values are:\n\
+          * `message_id` - Unique message ID\n* from - From Address\n* to - Recipient\
+          \ Address\n* time_rcv - Date Received in RFC 2822 or UNIX epoch format\n\
+          * time_snt - Date Delivered in RFC 2822 or UNIX epoch format\n* channel\
+          \ - Name of a channel\n\nAdditional column values for message reports (hard_bounced,\
+          \ failed, delivered, total) include:\n* status - Status of delivery\n* code\
+          \ - SMTP Response Code\n* message - SMTP Response message\n* tries - Amount\
+          \ of re-tries (deferred states before final)\n\nAdditional column values\
+          \ for spam reports include: \n* report_time - Date when an abuse complaint\
+          \ has been reported, RFC 2822 or UNIX epoch format\n* subject - Email Subject\n\
+          \nAdditional column values for pending reports include: \n* status - Current\
+          \ email status\n\nIf not specified all relevant columns are included.\n"
+        explode: true
+        in: query
+        name: columns
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Create Report
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create Periodic Report
+      tags:
+      - Reports
+  /v4/reports/periodic/{report_id}:
+    delete:
+      parameters:
+      - description: Id of a given report
+        explode: false
+        in: path
+        name: report_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete a Periodic Report
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete a Periodic Report
+      tags:
+      - Reports
+    patch:
+      parameters:
+      - description: Id of the report to be updated
+        explode: false
+        in: path
+        name: report_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: |
+          Report frequency – one of:
+           * daily - every day at a specified hour
+           * weekly  - Mondays at a specified hour
+           * monthly - first day of the month at a specified hour.
+        explode: true
+        in: query
+        name: frequency
+        required: true
+        schema:
+          enum:
+          - monthly
+          - weekly
+          - daily
+          type: string
+        style: form
+      - description: The hour at which the report should be sent. Value values range
+          from 0 to 23
+        explode: true
+        in: query
+        name: report_time
+        required: true
+        schema:
+          type: integer
+        style: form
+      - description: Name of channel (sender). If not specified all channels will
+          be reported
+        explode: true
+        in: query
+        name: channel
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: |
+          Filter by event type. Valid event are:
+          * hard_bounced - just hard bounces
+          * failed - all failed messages, i.e. hard_bounced + the rest of failed
+          * delivered - delivered messages
+          * sent - delivered+failed (default events value)
+          * pending - pending messages
+          * total - all messages, i.e. sent+pending
+          * abuse - spam complaints
+
+          If not specified all events are included.
+        explode: true
+        in: query
+        name: events
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Update Periodic Report
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Periodic Report
+      tags:
+      - Reports
+  /v4/alerts/:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  items:
+                  - type: monthly_quota
+                    threshold: 1
+                    alert_id: d6f021a4a9181b7031d4b6828ba9b295
+                  - type: monthly_quota
+                    threshold: 0.5
+                    alert_id: c6f021a4a9181b7031d4b6828ba9b295
+              schema:
+                $ref: '#/components/schemas/GetAlertResponse'
+          description: List All Allerts
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: List All Allerts
+      tags:
+      - Alerts
+    post:
+      parameters:
+      - description: An alert’s type. Currently only “monthly_quota” is supported
+        explode: true
+        in: query
+        name: type
+        required: true
+        schema:
+          enum:
+          - monthly_quota
+          type: string
+        style: form
+      - description: A number which represents a percentage of an account’s monthly
+          quota. Must be decimal between 0 and 1
+        explode: true
+        in: query
+        name: threshold
+        required: false
+        schema:
+          enum:
+          - 0.5
+          - 0.75
+          - 0.9
+          - 1
+          type: number
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  alert: created
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Create New Alert
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create New Alert
+      tags:
+      - Alerts
+  /v4/alerts/{alert_id}:
+    delete:
+      parameters:
+      - description: Id of a given alert
+        explode: false
+        in: path
+        name: alert_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  alert: deleted
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete Alert
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete Alert
+      tags:
+      - Alerts
+    get:
+      parameters:
+      - description: Id of a given alert
+        explode: false
+        in: path
+        name: alert_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  type: monthly_quota
+                  threshold: 1
+                  alert_id: d6f021a4a9181b7031d4b6828ba9b295
+              schema:
+                $ref: '#/components/schemas/GetAlertDetails'
+          description: Get Alert Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Alert Details
+      tags:
+      - Alerts
+    patch:
+      parameters:
+      - description: Id of a given alert
+        explode: false
+        in: path
+        name: alert_id
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A number which represents a percentage of an account’s monthly
+          quota. Must be decimal between 0 and 1
+        explode: true
+        in: query
+        name: threshold
+        required: false
+        schema:
+          enum:
+          - 0.5
+          - 0.75
+          - 0.9
+          - 1
+          type: number
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  alert: updated
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Update Alert Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Alert Details
+      tags:
+      - Alerts
+  /v4/callbacks/:
+    delete:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  callbacks: deleted
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete All Callbacks
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete All Callbacks
+      tags:
+      - Callbacks
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  items:
+                  - medium: http
+                    event: delivered
+                    channel: mychannel
+                    address: http://test.com
+                  - medium: http
+                    event: failed
+                    channel: mychannel
+                    address: http://test3.com
+              schema:
+                $ref: '#/components/schemas/GetCallbackResponse'
+          description: List All Callbacks
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: List All Callbacks
+      tags:
+      - Callbacks
+  /v4/callbacks/{event}:
+    delete:
+      parameters:
+      - description: |
+          Event for which the callback has been created. Valid types are:
+
+          * delivered -  message delivered
+          * failed - message bounced
+          * complained - complaint received
+          * bounceback - bounce back notification received
+          * received - message received by our system
+          * queued - message in queue (transient)
+          * hard_bounced - hard bounce received
+          * opened - message opened
+          * clicked - URL in message clicked
+          * unsubscribed - unsubscribe received
+        explode: false
+        in: path
+        name: event
+        required: true
+        schema:
+          enum:
+          - delivered
+          - failed
+          - complained
+          - bounceback
+          - received
+          - queued
+          - hard_bounced
+          - opened
+          - clicked
+          - unsubscribed
+          type: string
+        style: simple
+      - description: Name of the channel for which the callback has been created
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Delete Callback
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Delete Callback
+      tags:
+      - Callbacks
+    get:
+      parameters:
+      - description: |
+          Event for which the callback has been created. Valid types are:
+
+          * delivered -  message delivered
+          * failed - message bounced
+          * complained - complaint received
+          * bounceback - bounce back notification received
+          * received - message received by our system
+          * queued - message in queue (transient)
+          * hard_bounced - hard bounce received
+          * opened - message opened
+          * clicked - URL in message clicked
+          * unsubscribed - unsubscribe received
+        explode: false
+        in: path
+        name: event
+        required: true
+        schema:
+          enum:
+          - delivered
+          - failed
+          - complained
+          - bounceback
+          - received
+          - queued
+          - hard_bounced
+          - opened
+          - clicked
+          - unsubscribed
+          type: string
+        style: simple
+      - description: Name of the channel for which the callback has been created
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCallbackDetails'
+          description: Get Callback Details
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Callback Details
+      tags:
+      - Callbacks
+    patch:
+      parameters:
+      - description: |
+          Event for which the callback should be created. Valid types are:
+
+          * delivered -  message delivered
+          * failed - message bounced
+          * complained - complaint received
+          * bounceback - bounce back notification received
+          * received - message received by our system
+          * queued - message in queue (transient)
+          * hard_bounced - hard bounce received
+          * opened - message opened
+          * clicked - URL in message clicked
+          * unsubscribed - unsubscribe received
+        explode: false
+        in: path
+        name: event
+        required: true
+        schema:
+          enum:
+          - delivered
+          - failed
+          - complained
+          - bounceback
+          - received
+          - queued
+          - hard_bounced
+          - opened
+          - clicked
+          - unsubscribed
+          type: string
+        style: simple
+      - description: Name of the channel for which the callback has been created
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: |
+          Medium by which the callback data is sent. Possible values are one of:
+            * http
+            * aws
+        explode: true
+        in: query
+        name: medium
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Address to which the callback data is sent. This will be either
+          a URL for http-based callbacks or the Amazon SQS queue name for SQS-based
+          callbacks
+        explode: true
+        in: query
+        name: address
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: |
+          Amazon SQS settings.
+          ```
+          {key:string, secret:string}
+          ```
+          must be provided if medium is of type sqs
+        explode: true
+        in: query
+        name: aws_data
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+          description: Update Callback
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Update Callback Details
+      tags:
+      - Callbacks
+    post:
+      parameters:
+      - description: |
+          Event for which the callback should be created. Valid types are:
+
+          * delivered -  message delivered
+          * failed - message bounced
+          * complained - complaint received
+          * bounceback - bounce back notification received
+          * received - message received by our system
+          * queued - message in queue (transient)
+          * hard_bounced - hard bounce received
+          * opened - message opened
+          * clicked - URL in message clicked
+          * unsubscribed - unsubscribe received
+        explode: false
+        in: path
+        name: event
+        required: true
+        schema:
+          enum:
+          - delivered
+          - failed
+          - complained
+          - bounceback
+          - received
+          - queued
+          - hard_bounced
+          - opened
+          - clicked
+          - unsubscribed
+          type: string
+        style: simple
+      - description: Name of the channel for which the callback has been created.
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: |
+          Medium to send callback data. Valid values are one of:
+            * http
+            * sqs
+        explode: true
+        in: query
+        name: medium
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Address of where the callback data should be sent. This will
+          be either a URL for http-based callbacks or the Amazon SQS queue name for
+          SQS-based callbacks.
+        explode: true
+        in: query
+        name: address
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: |
+          Amazon SQS settings.
+          ```
+          {key:string, secret:string}
+          ```
+          must be provided if medium is of type sqs
+        explode: true
+        in: query
+        name: aws_data
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                status: success
+                data:
+                  callback: created
+              schema:
+                $ref: '#/components/schemas/CreateCallbackResponse'
+          description: Create Callback
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Create Callback
+      tags:
+      - Callbacks
+  /v4/callbacks/log:
+    get:
+      description: Review all callback logs for a specific channel. It may help debug
+        issues related to receiving callbacks on a user's side.
+      parameters:
+      - description: Name of the channel for which the given callback has been created
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: Number of items to return in the response. Default is 20
+        explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCallbackLogs'
+          description: View Callback Logs
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: View Callback Logs
+      tags:
+      - Callbacks
+  /v4/messages:
+    get:
+      parameters:
+      - description: The starting time. RFC 2822 or UNIX epoch format
+        explode: true
+        in: query
+        name: start
+        required: true
+        schema:
+          type: string
+        style: form
+      - description: The ending time. If not specified, defaults to now. RFC 2822
+          or UNIX epoch format.
+        explode: true
+        in: query
+        name: end
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Array of any event names for which stats has been requested ('accepted',
+          'failed', 'delivered').
+        explode: true
+        in: query
+        name: event
+        required: false
+        schema:
+          enum:
+          - accepted
+          - delivered
+          - failed
+          type: string
+        style: form
+      - description: Maximum number of items to return.
+        explode: true
+        in: query
+        name: limit
+        required: true
+        schema:
+          format: int32
+          maximum: 1000
+          minimum: 1
+          type: integer
+        style: form
+      - description: Number of items to skip before returning the results.
+        explode: true
+        in: query
+        name: offset
+        required: true
+        schema:
+          format: int32
+          minimum: 0
+          type: integer
+        style: form
+      - description: Unique message ID
+        explode: true
+        in: query
+        name: msg_id
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Name of  the channel used to send messages
+        explode: true
+        in: query
+        name: channel
+        required: true
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagesResponse'
+          description: Get Detailed Messages Info
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Get Detailed Messages Info
+      tags:
+      - Messages
+    post:
+      description: |
+        Send a message over HTTP/HTTPS protocol using a specified channel. The request can generate only an HTTP 400 error and will return validation error data.
+        The actual suppression, delivery attempt or SMTP error can be received via callbacks. See the section on Callbacks for more details.
+
+        <br>
+        **Limitations:**
+        * The number of recipients in a single email request is limited to `1000` (including to, cc and bcc)
+        * The total payload of the generated MIME message cannot exceed `10Mb` in size
+
+        <br>
+        **Notes:**
+        * When JUST two parts provided with `text/plain` and `text/html` types, they are automatically wrapped into a `mime/alternative` container
+        * Adding any other part or attachment to either a single part or attachment or `mime/alternative` automatically wraps all mime containers into a `mime/mixed` container
+        * Content type message/rfc822 is prohibited
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object'
+        content:
+          application/json:
+            schema:
+              properties:
+                channel:
+                  description: Name of  the channel through which the email will be
+                    sent
+                  type: string
+                recipients:
+                  $ref: '#/components/schemas/_v4_messages_recipients'
+                originator:
+                  $ref: '#/components/schemas/_v4_messages_originator'
+                custom_headers:
+                  description: A name of a header to customize (both standard and
+                    non-standard) and its value, which can be either string or array
+                    of strings
+                  type: object
+                subject:
+                  description: Email subject. Multiline value is supported, `998`
+                    characters max
+                  type: string
+                body:
+                  $ref: '#/components/schemas/_v4_messages_body'
+              type: object
+        description: request body
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostMessageResponse'
+          description: Send a Message
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Send a Message
+      tags:
+      - Messages
+  /v4/messages/mime:
+    post:
+      description: |
+        This method will send a prepared RFC compliant MIME message via a specified channel
+        **Note:** All restrictions from the section entitled `Send a Message` are implied here.
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_1'
+        content:
+          application/json:
+            schema:
+              properties:
+                mime:
+                  description: "A completely prepared full MIME container of the email,\
+                    \ compliant with RFC 2045, RFC 2046, RFC 2047, RFC 4288, RFC 4289\
+                    \ and RFC 2049. No validation will be performed during API submission\
+                    \ and it will be attempted to be delivered as is. Any errors while\
+                    \ processing and delivering this email will be available only\
+                    \ via callbacks. \n"
+                  type: string
+                channel:
+                  description: Name of the channel through which the email will be
+                    sent.
+                  type: string
+                recipients:
+                  $ref: '#/components/schemas/_v4_messages_mime_recipients'
+                originator:
+                  $ref: '#/components/schemas/_v4_messages_originator'
+              type: object
+        description: request body
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MimeResponse'
+          description: Send MIME Message
+        "400":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  errors:
+                    start: could not be blank
+                    limit: must be provided
+                    offset: must be provided
+              schema:
+                $ref: '#/components/schemas/BadRequestSchema'
+          description: Query or path params invalid
+        "401":
+          content:
+            application/json:
+              example:
+                status: fail
+                data:
+                  api_key: invalid
+              schema:
+                $ref: '#/components/schemas/InvalidKey'
+          description: Invalid API Key
+      security:
+      - apiKey: []
+      - apiID: []
+      - basicAuth: []
+      summary: Send MIME Message
+      tags:
+      - Messages
+components:
+  parameters:
+    EventParam:
+      description: Array of any event names for which stats has been requested.
+      explode: true
+      in: query
+      name: event
+      required: false
+      schema:
+        enum:
+        - accepted
+        - delivered
+        - failed
+        - hard
+        - queued
+        - opened
+        - clicked
+        - unsubscribed
+        - complained
+        type: string
+      style: form
+    SliceParam:
+      description: "A reducing method which can be applied to the requested duration.\
+        \ A final slice without an optional slice specifier will define a grouping.\n\
+        \nPossible Values:\n * `channel`: (optional) A given account's sender\n *\
+        \ `domain`: (optional) Sending domain\n * `rcpt_domain`: (optional) Recieving\
+        \ domain\n * `rcpt_isp`: (optional) Receiving ISP\n \n \nSlices can be chained\
+        \ in a meaningful way – for example:\n  ```\n  /last_month/channel/marketing/domain/smtp.com/rcpt_domain?event=complained\n\
+        \  ```\nwould produce an aggregate of complaints for a current account’s channel\
+        \ (sender) called “marketing” which were:\n  * sent from the registered email\
+        \ domain “smtp.com”, and \n  * are grouped by receiving domains\n  \n  \n\
+        The response would look something like:\n  ```\n  {“google.com”: {“complained”\
+        : 5}, “yahoo.com”: {“complained”:1}, “aol.com”: {“complained”:1}}\n  ```\n"
+      explode: false
+      in: path
+      name: slice
+      required: true
+      schema:
+        enum:
+        - channel
+        - domain
+        - rcpt_domain
+        - rcpt_isp
+        type: string
+      style: simple
+    SliceParam2:
+      description: |
+        A reducing method which can be applied to the requested duration. A final slice without an optional slice specifier will define a grouping.
+
+        Possible Values:
+         * `channel`: (optional) A given account's sender
+         * `domain`: (optional) Sending domain
+         * `rcpt_domain`: (optional) Recieving domain
+         * `rcpt_isp`: (optional) Receiving ISP
+      explode: false
+      in: path
+      name: slice_N
+      required: true
+      schema:
+        enum:
+        - channel
+        - domain
+        - rcpt_domain
+        - rcpt_isp
+        type: string
+      style: simple
+    LimitParam:
+      description: Maximum number of items to return.
+      explode: true
+      in: query
+      name: limit
+      required: true
+      schema:
+        format: int32
+        maximum: 1000
+        minimum: 1
+        type: integer
+      style: form
+    OffsetParam:
+      description: Number of items to skip before returning the results.
+      explode: true
+      in: query
+      name: offset
+      required: true
+      schema:
+        format: int32
+        minimum: 0
+        type: integer
+      style: form
+    StartParam:
+      description: The starting time. Required if the `{duration}` path parameter
+        is not specified. RFC 2822 or UNIX epoch format.
+      explode: true
+      in: query
+      name: start
+      required: true
+      schema:
+        type: string
+      style: form
+    EndParam:
+      description: The ending time. If not specified, defaults to now. RFC 2822 or
+        UNIX epoch format.
+      explode: true
+      in: query
+      name: end
+      required: false
+      schema:
+        type: string
+      style: form
+    SliceSpec:
+      description: slice value (smtp.com, sender1)
+      explode: false
+      in: path
+      name: slice_specifier
+      required: true
+      schema:
+        type: string
+      style: simple
+    SliceSpecN:
+      description: slice value (smtp.com, sender1)
+      explode: false
+      in: path
+      name: slice_specifier_N
+      required: true
+      schema:
+        type: string
+      style: simple
+    GroupParam:
+      description: |
+        Define a grouping:
+         * `channel` - optionally to be followed by a channel ID or name specifier
+         * `domain`  - optionally to be followed by a registered domain name
+         * `rcpt_domain` - optionally to be followed by a registered domain name
+         * `rcpt_isp` - optionally to be followed by a registered domain name
+      explode: false
+      in: path
+      name: group_by
+      required: true
+      schema:
+        enum:
+        - channel
+        - domain
+        - rcpt_domain
+        - rcpt_isp
+        type: string
+      style: simple
+    DurationParam:
+      description: |
+        A standardized shorthand for a known start/end bracket. Duration automatically supersedes start/end values provided as query string parameters. One of either the `{duration}` path parameter or the `start` query parameter must be specified.
+         <table>
+         <tr><th>Value</th><th>Start</th><th>End</th><th>Slicable</th></tr>
+         <tr><td>last_24hrs</td><td>84,400 seconds ago</td><td>Now</td><td>yes</td></tr>
+         <tr><td>last_30days</td><td>18,144,000 seconds ago</td><td>Now</td><td>yes</td></tr>
+         <tr><td>last_7days</td><td>604,800 seconds ago</td><td>Now</td><td>yes</td></tr>
+         <tr><td>last_day</td><td>00:00:00 of the previous day</td><td>23:59:59 of the previous day</td><td>yes</td></tr>
+         <tr><td>last_hour</td><td>00:00 of the previous hour</td><td>59:59 of the previous hour</td><td>yes</td></tr>
+         <tr><td>last_month or mtd</td><td>1st day 00:00:00 of previous month</td><td>23:59:59 last day of previous month</td><td>yes</td></tr>
+         <tr><td>last_week</td><td>Monday 00:00:00 of previous week</td><td>Sunday 23:59:59 of previous week</td><td>yes</td></tr>
+         <tr><td>this_day</td><td>00:00:00 of current day</td><td>Now</td><td>yes</td></tr>
+         <tr><td>this_hour</td><td>00:00 of current clock hour</td><td>Now</td><td>yes</td></tr>
+         <tr><td>this_month</td><td>1st day 00:00:00 of current month</td><td>Now</td><td>yes</td></tr>
+         <tr><td>this_week</td><td>Monday 00:00:00 of current week</td><td>Now</td><td>yes</td></tr>
+         <tr><td>last_year</td><td> Jan 1st 00:00:00 of previous year</td><td>Dec 31st 23:59:59 of previous year</td><td>no</td></tr>
+         <tr><td>this_year or ytd</td><td>Jan 1st  00:00:0 of current year</td><td>Now</td><td>no</td></tr>
+         <tr><td>total</td><td>Account creation date</td><td>Now</td><td>no</td></tr>
+         </table>
+      explode: false
+      in: path
+      name: duration
+      required: true
+      schema:
+        enum:
+        - last_hour
+        - last_day
+        - last_week
+        - last_month
+        - this_hour
+        - this_day
+        - this_week
+        - this_month
+        - last_24hrs
+        - last_7days
+        - last_30days
+        - mtd
+        - total
+        - this_year
+        - ytd
+        - last_year
+        type: string
+      style: simple
+  requestBodies:
+    inline_object_1:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_1'
+      required: true
+    inline_object:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object'
+  responses:
+    UnauthorizedError:
+      content:
+        application/json:
+          example:
+            status: fail
+            data:
+              api_key: invalid
+          schema:
+            $ref: '#/components/schemas/InvalidKey'
+      description: Invalid API Key
+    BadRequestError:
+      content:
+        application/json:
+          example:
+            status: fail
+            data:
+              errors:
+                start: could not be blank
+                limit: must be provided
+                offset: must be provided
+          schema:
+            $ref: '#/components/schemas/BadRequestSchema'
+      description: Query or path params invalid
+    GetStats:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/StatsResponse'
+      description: Get stats
+  schemas:
+    InvalidKey:
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/InvalidKey_data'
+      type: object
+    BadRequestSchema:
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/BadRequestSchema_data'
+      type: object
+    StatsResponse:
+      example:
+        data:
+          items:
+          - unsubscribed: 7
+            queued: 9
+            complained: 6
+            accepted: 0
+            delivered: 1
+            opened: 5
+            failed: 2
+            clicked: 5
+          - unsubscribed: 7
+            queued: 9
+            complained: 6
+            accepted: 0
+            delivered: 1
+            opened: 5
+            failed: 2
+            clicked: 5
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/StatsResponse_data'
+      type: object
+    Reports:
+      example:
+        data:
+          periodic:
+          - report_time: report_time
+            report_id: report_id
+            channel: channel
+            events: events
+            frequency: monthly
+          - report_time: report_time
+            report_id: report_id
+            channel: channel
+            events: events
+            frequency: monthly
+          ondemand:
+          - report_id: report_id
+            name: name
+            channel: channel
+            progress: 6
+            url: url
+            status: in_progress
+            time_req: 0
+          - report_id: report_id
+            name: name
+            channel: channel
+            progress: 6
+            url: url
+            status: in_progress
+            time_req: 0
+        status: status
+      properties:
+        status:
+          description: Request status
+          type: string
+        data:
+          $ref: '#/components/schemas/Reports_data'
+      type: object
+    Report:
+      example:
+        report_time: report_time
+        report_id: report_id
+        channel: channel
+        name: name
+        progress: 6
+        events: events
+        url: url
+        frequency: monthly
+        status: in_progress
+        time_req: 0
+      properties:
+        frequency:
+          description: |
+            Report frequency – one of:
+              * daily - every day at a specified hour
+              * weekly - Mondays at a specified hour
+              * monthly - 1st day of the month at a specified hour
+          enum:
+          - monthly
+          - weekly
+          - daily
+          type: string
+        report_id:
+          description: Unique report ID
+          type: string
+        events:
+          description: "Preset of events returned in a report: \n  * hard_bounced\n\
+            \  * failed\n  * delivered\n  * sent\n  * pending\n  * total\n  * abuse\n\
+            If not specified all events are included.\n"
+          type: string
+        channel:
+          description: Name of channel (sender). If not specified all channels will
+            be reported
+          type: string
+        report_time:
+          description: The hour at which the report should be sent, values range from
+            0 to 23
+          type: string
+        status:
+          description: Current status of a given on-demand report
+          enum:
+          - in_progress
+          - done
+          - pending
+          type: string
+        name:
+          description: Human readable name of an on-demand report (auto-generated)
+          type: string
+        url:
+          description: The unique URL from which to download an on-demand report from
+          type: string
+        time_req:
+          description: Time when a given on-demand report has been requestedi. RFC
+            2822 or UNIX epoch format
+          type: integer
+        progress:
+          description: Percentage of completion for an on-demand report
+          type: integer
+      type: object
+    GetCallbackResponse:
+      example:
+        data:
+          items:
+          - aws_data: aws_data
+            address: address
+            channel: channel
+            medium: http
+            event: event
+          - aws_data: aws_data
+            address: address
+            channel: channel
+            medium: http
+            event: event
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetCallbackResponse_data'
+      type: object
+    CreateCallbackResponse:
+      example:
+        data: '{}'
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          description: Data
+          type: object
+      type: object
+    GetCallbackLogs:
+      example:
+        data:
+          items:
+          - msg: msg
+            code: 0
+            time: time
+          - msg: msg
+            code: 0
+            time: time
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetCallbackLogs_data'
+      type: object
+    GetCallbackDetails:
+      example:
+        data:
+          aws_data: aws_data
+          address: address
+          channel: channel
+          medium: http
+          event: event
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetCallbackDetails_data'
+      type: object
+    StatusResponse:
+      example:
+        data: '{}'
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          description: empty object
+          type: object
+      type: object
+    PostMessageResponse:
+      example:
+        data:
+          msg_id: msg_id
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/PostMessageResponse_data'
+      type: object
+    MimeResponse:
+      example:
+        data:
+          msg_id: msg_id
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/PostMessageResponse_data'
+      type: object
+    MessagesResponse:
+      example:
+        data:
+          items:
+          - msg_data:
+              rcpt_to: rcpt_to
+              subject: subject
+              from: from
+            abuse:
+              complaints:
+              - report_time: report_time
+                provider: provider
+              - report_time: report_time
+                provider: provider
+            smtp_vars: '{}'
+            unsubs:
+              items:
+              - unsub_time: unsub_time
+              - unsub_time: unsub_time
+            channel: channel
+            opens:
+              items:
+              - remote_ip: remote_ip
+                open_time: open_time
+                ua: ua
+              - remote_ip: remote_ip
+                open_time: open_time
+                ua: ua
+            clicks:
+              items:
+              - remote_ip: remote_ip
+                click_time: click_time
+                ua: ua
+              - remote_ip: remote_ip
+                click_time: click_time
+                ua: ua
+            details:
+              delivery:
+                retries: 6
+                code: code
+                finished: finished
+                event: event
+                status: status
+            msg_time: 0
+            msg_id: msg_id
+          - msg_data:
+              rcpt_to: rcpt_to
+              subject: subject
+              from: from
+            abuse:
+              complaints:
+              - report_time: report_time
+                provider: provider
+              - report_time: report_time
+                provider: provider
+            smtp_vars: '{}'
+            unsubs:
+              items:
+              - unsub_time: unsub_time
+              - unsub_time: unsub_time
+            channel: channel
+            opens:
+              items:
+              - remote_ip: remote_ip
+                open_time: open_time
+                ua: ua
+              - remote_ip: remote_ip
+                open_time: open_time
+                ua: ua
+            clicks:
+              items:
+              - remote_ip: remote_ip
+                click_time: click_time
+                ua: ua
+              - remote_ip: remote_ip
+                click_time: click_time
+                ua: ua
+            details:
+              delivery:
+                retries: 6
+                code: code
+                finished: finished
+                event: event
+                status: status
+            msg_time: 0
+            msg_id: msg_id
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/MessagesResponse_data'
+      type: object
+    GetDomainDetailsResponse:
+      example:
+        data:
+          domain_name: domain_name
+          enabled: true
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetDomainDetailsResponse_data'
+      type: object
+    CreateDomainResponse:
+      example:
+        data:
+          domain_name: domain_name
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/CreateDomainResponse_data'
+      type: object
+    GetDomainsResponse:
+      example:
+        data:
+          items:
+          - domain_name: domain_name
+            enabled: true
+          - domain_name: domain_name
+            enabled: true
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetDomainsResponse_data'
+      type: object
+    Channels:
+      example:
+        data:
+          items:
+          - date_created: 1
+            quota: 0
+            usage: 6
+            name: name
+            status: status
+            smtp_username: smtp_username
+          - date_created: 1
+            quota: 0
+            usage: 6
+            name: name
+            status: status
+            smtp_username: smtp_username
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/Channels_data'
+      type: object
+    Channel:
+      example:
+        status: success
+        data:
+          items:
+          - status: active
+            quota: 20
+            label: sender_label
+            usage: 0
+            date_created: 1507958155
+            smtp_username: myusername@smtp.com
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/Channel_data'
+      type: object
+    CreateDkimKey:
+      example:
+        data:
+          dkim_key: dkim_key
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/CreateDkimKey_data'
+      type: object
+    GetDomainDetails:
+      example:
+        data:
+          domain_name: domain_name
+          is_valid: true
+          selector: selector
+          private_key: private_key
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetDomainDetails_data'
+      type: object
+    GetApiKeys:
+      example:
+        data:
+          items:
+          - date_created: date_created
+            description: description
+            key: key
+            status: status
+          - date_created: date_created
+            description: description
+            key: key
+            status: status
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetApiKeys_data'
+      type: object
+    APIKey:
+      example:
+        status: success
+        data:
+          status: active
+          description: null
+          key: 48c3c53b7a05179a79b20a8861f63272a0c8ebf2
+          date_created: 1516882099
+          name: new key
+      properties:
+        status:
+          description: Current status of the API key
+          type: string
+        descrption:
+          description: Description for API key
+          type: string
+        key:
+          description: The actual API key value
+          type: string
+        date_created:
+          description: Timestamp of when the API key was first created.
+          type: string
+      type: object
+    GetAlertDetails:
+      example:
+        data:
+          alert_id: alert_id
+          threshold: "0.5"
+          type: monthly_quota
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetAlertDetails_data'
+      type: object
+    GetAlertResponse:
+      example:
+        data:
+          items:
+          - alert_id: alert_id
+            threshold: "0.5"
+            type: monthly_quota
+          - alert_id: alert_id
+            threshold: "0.5"
+            type: monthly_quota
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/GetAlertResponse_data'
+      type: object
+    UpdateAccountResponse:
+      example:
+        data:
+          account: account
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/UpdateAccountResponse_data'
+      type: object
+    Account:
+      example:
+        data:
+          date created: 6
+          website: website
+          address:
+            country: country
+            city: city
+            street: street
+            state: state
+          phone: phone
+          company_name: company_name
+          usage: 0
+          last_name: last_name
+          first_name: first_name
+          email: email
+          status: status
+        status: status
+      properties:
+        status:
+          description: Request status.
+          type: string
+        data:
+          $ref: '#/components/schemas/Account_data'
+      type: object
+    sliceValue:
+      enum:
+      - channel
+      - domain
+      - rcpt_domain
+      - rcpt_isp
+      type: string
+    durationValue:
+      enum:
+      - last_hour
+      - last_day
+      - last_week
+      - last_month
+      - this_hour
+      - this_day
+      - this_week
+      - this_month
+      - last_24hrs
+      - last_7days
+      - last_30days
+      - mtd
+      - total
+      - this_year
+      - ytd
+      - last_year
+      type: string
+    _v4_messages_recipients_to:
+      description: Full Email Address object
+      properties:
+        name:
+          description: Name of a person, must be a valid RFC 2822 name
+          type: string
+        address:
+          description: Email address, as specified in RFC 2822
+          type: string
+      type: object
+    _v4_messages_recipients:
+      description: |
+        At least one of `to`, `cc`, `bcc` or `bulk_list` must be specified here.
+        `bulk_list` can not be used with `to`, `cc` or `bcc`
+      properties:
+        to:
+          description: TO recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        cc:
+          description: CC recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        bcc:
+          description: BCC recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        bulk_list:
+          description: Distribution list. Instead of an individual email to multiple
+            recipients, multiple emails to multiple recipients will be created.
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+      type: object
+    _v4_messages_originator:
+      description: At least one of `from` or `reply_to` must be specified here.
+      properties:
+        from:
+          $ref: '#/components/schemas/_v4_messages_recipients_to'
+        reply_to:
+          $ref: '#/components/schemas/_v4_messages_recipients_to'
+      type: object
+    _v4_messages_body_parts:
+      properties:
+        version:
+          description: MIME version. By default set to `1.0`
+          type: string
+        type:
+          description: MIME type. By default set to `plain/text`
+          type: string
+        charset:
+          description: Content character set -- i.e. UTF-8, ISO-8859-1, etc.
+          type: string
+        encoding:
+          description: Content encoding – i.e. 7bit, quoted-printable, base64, etc.
+            default base64
+          type: string
+        content:
+          description: Actual part’s content in its raw form
+          type: string
+      type: object
+    _v4_messages_body_attachments:
+      properties:
+        version:
+          description: MIME version. By default set to `1.0`
+          type: string
+        type:
+          description: MIME type. By default set to `application/octet-stream`
+          type: string
+        disposition:
+          description: Content-disposition, either `inline` or `attachment`. By default
+            set to `attachment`
+          type: string
+        filename:
+          description: Name of attached file
+          type: string
+        cid:
+          description: Content ID for inline dispositions. By default this is equal
+            to the filename. Can be used in HTML content to address an attached image
+            using “cid:” URL scheme.
+          type: string
+        content:
+          description: Actual attachment content in its raw form
+          type: string
+      type: object
+    _v4_messages_body:
+      description: Array of content parts as defined below
+      properties:
+        parts:
+          items:
+            $ref: '#/components/schemas/_v4_messages_body_parts'
+          type: array
+        attachments:
+          items:
+            $ref: '#/components/schemas/_v4_messages_body_attachments'
+          type: array
+      type: object
+    inline_object:
+      properties:
+        channel:
+          description: Name of  the channel through which the email will be sent
+          type: string
+        recipients:
+          $ref: '#/components/schemas/_v4_messages_recipients'
+        originator:
+          $ref: '#/components/schemas/_v4_messages_originator'
+        custom_headers:
+          description: A name of a header to customize (both standard and non-standard)
+            and its value, which can be either string or array of strings
+          type: object
+        subject:
+          description: Email subject. Multiline value is supported, `998` characters
+            max
+          type: string
+        body:
+          $ref: '#/components/schemas/_v4_messages_body'
+      type: object
+    _v4_messages_mime_recipients:
+      properties:
+        to:
+          description: TO recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        cc:
+          description: CC recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        bcc:
+          description: BCC recipients list
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+        bulk_list:
+          description: Distribution list. Instead of an individual email to multiple
+            recipients, multiple emails to multiple recipients will be created.
+          items:
+            $ref: '#/components/schemas/_v4_messages_recipients_to'
+          type: array
+      type: object
+    inline_object_1:
+      properties:
+        mime:
+          description: "A completely prepared full MIME container of the email, compliant\
+            \ with RFC 2045, RFC 2046, RFC 2047, RFC 4288, RFC 4289 and RFC 2049.\
+            \ No validation will be performed during API submission and it will be\
+            \ attempted to be delivered as is. Any errors while processing and delivering\
+            \ this email will be available only via callbacks. \n"
+          type: string
+        channel:
+          description: Name of the channel through which the email will be sent.
+          type: string
+        recipients:
+          $ref: '#/components/schemas/_v4_messages_mime_recipients'
+        originator:
+          $ref: '#/components/schemas/_v4_messages_originator'
+      type: object
+    InvalidKey_data_errors:
+      description: error object
+      properties:
+        error_field:
+          description: error message
+          type: string
+      type: object
+    InvalidKey_data:
+      description: Data
+      properties:
+        errors:
+          items:
+            $ref: '#/components/schemas/InvalidKey_data_errors'
+          type: array
+      type: object
+    BadRequestSchema_data:
+      description: Data
+      properties:
+        errors:
+          description: error object
+          type: object
+      type: object
+    StatsResponse_data_items:
+      example:
+        unsubscribed: 7
+        queued: 9
+        complained: 6
+        accepted: 0
+        delivered: 1
+        opened: 5
+        failed: 2
+        clicked: 5
+      properties:
+        accepted:
+          type: integer
+        complained:
+          type: integer
+        delivered:
+          type: integer
+        clicked:
+          type: integer
+        opened:
+          type: integer
+        failed:
+          type: integer
+        unsubscribed:
+          type: integer
+        queued:
+          type: integer
+      type: object
+    StatsResponse_data:
+      description: Stats data.
+      example:
+        items:
+        - unsubscribed: 7
+          queued: 9
+          complained: 6
+          accepted: 0
+          delivered: 1
+          opened: 5
+          failed: 2
+          clicked: 5
+        - unsubscribed: 7
+          queued: 9
+          complained: 6
+          accepted: 0
+          delivered: 1
+          opened: 5
+          failed: 2
+          clicked: 5
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/StatsResponse_data_items'
+          type: array
+      type: object
+    Reports_data_periodic:
+      example:
+        report_time: report_time
+        report_id: report_id
+        channel: channel
+        events: events
+        frequency: monthly
+      properties:
+        frequency:
+          description: Periodic report frequency
+          enum:
+          - monthly
+          - weekly
+          - daily
+          type: string
+        report_id:
+          description: Unique report ID
+          type: string
+        events:
+          description: Preset of events returned in a periodic report
+          type: string
+        channel:
+          description: Name of the channel for which a given report has been defined
+          type: string
+        report_time:
+          description: The hour at which the report should be sent, values range from
+            0 to 23
+          type: string
+      type: object
+    Reports_data_ondemand:
+      example:
+        report_id: report_id
+        name: name
+        channel: channel
+        progress: 6
+        url: url
+        status: in_progress
+        time_req: 0
+      properties:
+        status:
+          description: Current status of a given on-demand report
+          enum:
+          - in_progress
+          - done
+          - pending
+          type: string
+        name:
+          description: Human readable name of an on-demand report (auto-generated)
+          type: string
+        url:
+          description: The unique URL from which to download an on-demand report
+          type: string
+        time_req:
+          description: Time when a given on-demand report has been requestedi. RFC
+            2822 or UNIX epoch format
+          type: integer
+        progress:
+          description: Percentage of completion for an on-demand report
+          type: integer
+        channel:
+          description: Name of the channel for which a given report has been defined
+          type: string
+        report_id:
+          description: Unique report ID
+          type: string
+      type: object
+    Reports_data:
+      description: Periodic Reports
+      example:
+        periodic:
+        - report_time: report_time
+          report_id: report_id
+          channel: channel
+          events: events
+          frequency: monthly
+        - report_time: report_time
+          report_id: report_id
+          channel: channel
+          events: events
+          frequency: monthly
+        ondemand:
+        - report_id: report_id
+          name: name
+          channel: channel
+          progress: 6
+          url: url
+          status: in_progress
+          time_req: 0
+        - report_id: report_id
+          name: name
+          channel: channel
+          progress: 6
+          url: url
+          status: in_progress
+          time_req: 0
+      properties:
+        periodic:
+          items:
+            $ref: '#/components/schemas/Reports_data_periodic'
+          type: array
+        ondemand:
+          items:
+            $ref: '#/components/schemas/Reports_data_ondemand'
+          type: array
+      type: object
+    GetCallbackResponse_data_items:
+      example:
+        aws_data: aws_data
+        address: address
+        channel: channel
+        medium: http
+        event: event
+      properties:
+        medium:
+          description: |
+            Medium by which the callback data is sent. Possible values are one of:
+              * http
+              * aws
+          enum:
+          - http
+          - aws
+          type: string
+        event:
+          description: |
+            Event for which the callback has been created. Valid types are:
+
+            * delivered -  message delivered
+            * failed - message bounced
+            * complained - complaint received
+            * bounceback - bounce back notification received
+            * received - message received by our system
+            * queued - message in queue (transient)
+            * hard_bounced - hard bounce received
+            * opened - message opened
+            * clicked - URL in message clicked
+            * unsubscribed - unsubscribe received
+          type: string
+        channel:
+          description: Name of the channel for which the callback has been created
+          type: string
+        address:
+          description: Address to which the callback data is sent. This will be either
+            a URL for http-based callbacks or the Amazon SQS queue name for SQS-based
+            callbacks
+          type: string
+        aws_data:
+          description: Amazon SQS settings
+          type: string
+      type: object
+    GetCallbackResponse_data:
+      description: Callbacks
+      example:
+        items:
+        - aws_data: aws_data
+          address: address
+          channel: channel
+          medium: http
+          event: event
+        - aws_data: aws_data
+          address: address
+          channel: channel
+          medium: http
+          event: event
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GetCallbackResponse_data_items'
+          type: array
+      type: object
+    GetCallbackLogs_data_items:
+      example:
+        msg: msg
+        code: 0
+        time: time
+      properties:
+        code:
+          description: HTTP code for the callback
+          type: integer
+        msg:
+          description: HTTP or AWS SQS response message from the server
+          type: string
+        time:
+          description: Time of callback in RFC 2822 or UNIX epoch format
+          type: string
+      type: object
+    GetCallbackLogs_data:
+      description: Callback Logs
+      example:
+        items:
+        - msg: msg
+          code: 0
+          time: time
+        - msg: msg
+          code: 0
+          time: time
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GetCallbackLogs_data_items'
+          type: array
+      type: object
+    GetCallbackDetails_data:
+      description: data object
+      example:
+        aws_data: aws_data
+        address: address
+        channel: channel
+        medium: http
+        event: event
+      properties:
+        medium:
+          description: |
+            Medium by which the callback data is sent. Possible values are one of:
+              * http
+              * aws
+          enum:
+          - http
+          - aws
+          type: string
+        event:
+          description: |
+            Event for which the callback has been created. Valid types are:
+
+            * delivered -  message delivered
+            * failed - message bounced
+            * complained - complaint received
+            * bounceback - bounce back notification received
+            * received - message received by our system
+            * queued - message in queue (transient)
+            * hard_bounced - hard bounce received
+            * opened - message opened
+            * clicked - URL in message clicked
+            * unsubscribed - unsubscribe received
+          type: string
+        channel:
+          description: Name of the channel for which the callback has been created
+          type: string
+        address:
+          description: Address to which the callback data is sent. This will be either
+            a URL for http-based callbacks or the Amazon SQS queue name for SQS-based
+            callbacks
+          type: string
+        aws_data:
+          description: Amazon SQS settings
+          type: string
+      type: object
+    PostMessageResponse_data:
+      example:
+        msg_id: msg_id
+      properties:
+        msg_id:
+          description: Unique Message ID of accepted message
+          type: string
+      type: object
+    MessagesResponse_data_msg_data:
+      example:
+        rcpt_to: rcpt_to
+        subject: subject
+        from: from
+      properties:
+        rcpt_to:
+          description: Email address of the recipient
+          type: string
+        from:
+          description: Email address of the sender
+          type: string
+        subject:
+          description: Message subject
+          type: string
+      type: object
+    MessagesResponse_data_details_delivery:
+      example:
+        retries: 6
+        code: code
+        finished: finished
+        event: event
+        status: status
+      properties:
+        finished:
+          description: Timestamp of when the message was delivered
+          type: string
+        retries:
+          description: Number of retries after the initial delivery attempt
+          type: integer
+        event:
+          description: "One of: \n  * delivered\n  * failed\n  * queued\n"
+          type: string
+        code:
+          description: The last SMTP response code received from a peer
+          type: string
+        status:
+          description: The last SMTP response message received from a peer
+          type: string
+      type: object
+    MessagesResponse_data_details:
+      description: Delivery Data
+      example:
+        delivery:
+          retries: 6
+          code: code
+          finished: finished
+          event: event
+          status: status
+      properties:
+        delivery:
+          $ref: '#/components/schemas/MessagesResponse_data_details_delivery'
+      type: object
+    MessagesResponse_data_opens_items:
+      example:
+        remote_ip: remote_ip
+        open_time: open_time
+        ua: ua
+      properties:
+        open_time:
+          description: Timestamp of when the message was opened
+          type: string
+        remote_ip:
+          description: IP address of where the message was opened
+          type: string
+        ua:
+          description: User agent of device on which the message was opened
+          type: string
+      type: object
+    MessagesResponse_data_opens:
+      description: Opens Data
+      example:
+        items:
+        - remote_ip: remote_ip
+          open_time: open_time
+          ua: ua
+        - remote_ip: remote_ip
+          open_time: open_time
+          ua: ua
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessagesResponse_data_opens_items'
+          type: array
+      type: object
+    MessagesResponse_data_clicks_items:
+      example:
+        remote_ip: remote_ip
+        click_time: click_time
+        ua: ua
+      properties:
+        click_time:
+          description: Timestamp of when message links were clicked
+          type: string
+        remote_ip:
+          description: IP address of where links were clicked
+          type: string
+        ua:
+          description: User agent of device on which links were clicked
+          type: string
+      type: object
+    MessagesResponse_data_clicks:
+      description: Clicks Data
+      example:
+        items:
+        - remote_ip: remote_ip
+          click_time: click_time
+          ua: ua
+        - remote_ip: remote_ip
+          click_time: click_time
+          ua: ua
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessagesResponse_data_clicks_items'
+          type: array
+      type: object
+    MessagesResponse_data_abuse_complaints:
+      example:
+        report_time: report_time
+        provider: provider
+      properties:
+        report_time:
+          description: Time when the complaint was made
+          type: string
+        provider:
+          description: Abuse provider information
+          type: string
+      type: object
+    MessagesResponse_data_abuse:
+      description: Abuse Data
+      example:
+        complaints:
+        - report_time: report_time
+          provider: provider
+        - report_time: report_time
+          provider: provider
+      properties:
+        complaints:
+          items:
+            $ref: '#/components/schemas/MessagesResponse_data_abuse_complaints'
+          type: array
+      type: object
+    MessagesResponse_data_unsubs_items:
+      example:
+        unsub_time: unsub_time
+      properties:
+        unsub_time:
+          description: Time when the unsubscribe request was made
+          type: string
+      type: object
+    MessagesResponse_data_unsubs:
+      description: Unsubscribes Data
+      example:
+        items:
+        - unsub_time: unsub_time
+        - unsub_time: unsub_time
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessagesResponse_data_unsubs_items'
+          type: array
+      type: object
+    MessagesResponse_data_items:
+      example:
+        msg_data:
+          rcpt_to: rcpt_to
+          subject: subject
+          from: from
+        abuse:
+          complaints:
+          - report_time: report_time
+            provider: provider
+          - report_time: report_time
+            provider: provider
+        smtp_vars: '{}'
+        unsubs:
+          items:
+          - unsub_time: unsub_time
+          - unsub_time: unsub_time
+        channel: channel
+        opens:
+          items:
+          - remote_ip: remote_ip
+            open_time: open_time
+            ua: ua
+          - remote_ip: remote_ip
+            open_time: open_time
+            ua: ua
+        clicks:
+          items:
+          - remote_ip: remote_ip
+            click_time: click_time
+            ua: ua
+          - remote_ip: remote_ip
+            click_time: click_time
+            ua: ua
+        details:
+          delivery:
+            retries: 6
+            code: code
+            finished: finished
+            event: event
+            status: status
+        msg_time: 0
+        msg_id: msg_id
+      properties:
+        msg_id:
+          description: Unique message ID
+          type: string
+        msg_time:
+          description: Time at which the message was sent
+          type: integer
+        channel:
+          description: Name of the channel on which the message was sent
+          type: string
+        smtp_vars:
+          description: Custom parameters and their value echoed back from `X-SMTPAPI`
+            header's `unique_args` parameter
+          type: object
+        msg_data:
+          $ref: '#/components/schemas/MessagesResponse_data_msg_data'
+        details:
+          $ref: '#/components/schemas/MessagesResponse_data_details'
+        opens:
+          $ref: '#/components/schemas/MessagesResponse_data_opens'
+        clicks:
+          $ref: '#/components/schemas/MessagesResponse_data_clicks'
+        abuse:
+          $ref: '#/components/schemas/MessagesResponse_data_abuse'
+        unsubs:
+          $ref: '#/components/schemas/MessagesResponse_data_unsubs'
+      type: object
+    MessagesResponse_data:
+      description: Message data.
+      example:
+        items:
+        - msg_data:
+            rcpt_to: rcpt_to
+            subject: subject
+            from: from
+          abuse:
+            complaints:
+            - report_time: report_time
+              provider: provider
+            - report_time: report_time
+              provider: provider
+          smtp_vars: '{}'
+          unsubs:
+            items:
+            - unsub_time: unsub_time
+            - unsub_time: unsub_time
+          channel: channel
+          opens:
+            items:
+            - remote_ip: remote_ip
+              open_time: open_time
+              ua: ua
+            - remote_ip: remote_ip
+              open_time: open_time
+              ua: ua
+          clicks:
+            items:
+            - remote_ip: remote_ip
+              click_time: click_time
+              ua: ua
+            - remote_ip: remote_ip
+              click_time: click_time
+              ua: ua
+          details:
+            delivery:
+              retries: 6
+              code: code
+              finished: finished
+              event: event
+              status: status
+          msg_time: 0
+          msg_id: msg_id
+        - msg_data:
+            rcpt_to: rcpt_to
+            subject: subject
+            from: from
+          abuse:
+            complaints:
+            - report_time: report_time
+              provider: provider
+            - report_time: report_time
+              provider: provider
+          smtp_vars: '{}'
+          unsubs:
+            items:
+            - unsub_time: unsub_time
+            - unsub_time: unsub_time
+          channel: channel
+          opens:
+            items:
+            - remote_ip: remote_ip
+              open_time: open_time
+              ua: ua
+            - remote_ip: remote_ip
+              open_time: open_time
+              ua: ua
+          clicks:
+            items:
+            - remote_ip: remote_ip
+              click_time: click_time
+              ua: ua
+            - remote_ip: remote_ip
+              click_time: click_time
+              ua: ua
+          details:
+            delivery:
+              retries: 6
+              code: code
+              finished: finished
+              event: event
+              status: status
+          msg_time: 0
+          msg_id: msg_id
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessagesResponse_data_items'
+          type: array
+      type: object
+    GetDomainDetailsResponse_data:
+      description: Domains
+      example:
+        domain_name: domain_name
+        enabled: true
+      properties:
+        domain_name:
+          description: Registered domain name
+          type: string
+        enabled:
+          description: Flag indicating whether the domain is enabled for the given
+            account
+          type: boolean
+      type: object
+    CreateDomainResponse_data:
+      description: Domain
+      example:
+        domain_name: domain_name
+      properties:
+        domain_name:
+          description: request result
+          type: string
+      type: object
+    GetDomainsResponse_data_items:
+      example:
+        domain_name: domain_name
+        enabled: true
+      properties:
+        domain_name:
+          description: Registered domain name
+          type: string
+        enabled:
+          description: Flag indicating whether the domain is enabled for the given
+            account
+          type: boolean
+      type: object
+    GetDomainsResponse_data:
+      description: Domains
+      example:
+        items:
+        - domain_name: domain_name
+          enabled: true
+        - domain_name: domain_name
+          enabled: true
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GetDomainsResponse_data_items'
+          type: array
+      type: object
+    Channels_data_items:
+      example:
+        date_created: 1
+        quota: 0
+        usage: 6
+        name: name
+        status: status
+        smtp_username: smtp_username
+      properties:
+        status:
+          description: Current status of the channel
+          type: string
+        quota:
+          description: Quota for the channel
+          type: integer
+        name:
+          description: Name of the channel (sender)
+          type: string
+        usage:
+          description: Current usage for the channel
+          type: integer
+        date_created:
+          description: Timestamp for when the channel was originally created
+          type: integer
+        smtp_username:
+          description: Username for the channel
+          type: string
+      type: object
+    Channels_data:
+      description: Channels
+      example:
+        items:
+        - date_created: 1
+          quota: 0
+          usage: 6
+          name: name
+          status: status
+          smtp_username: smtp_username
+        - date_created: 1
+          quota: 0
+          usage: 6
+          name: name
+          status: status
+          smtp_username: smtp_username
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Channels_data_items'
+          type: array
+      type: object
+    Channel_data:
+      description: Channel
+      properties:
+        status:
+          description: Current status of the channel
+          type: string
+        quota:
+          description: Quota for the channel
+          type: integer
+        label:
+          description: TODO FIXME
+          type: string
+        usage:
+          description: Current usage for the channel
+          type: integer
+        date_created:
+          description: Timestamp for when the channel was originally created
+          type: integer
+        smtp_username:
+          description: Username for the channel
+          type: string
+      type: object
+    CreateDkimKey_data:
+      description: Domains
+      example:
+        dkim_key: dkim_key
+      properties:
+        dkim_key:
+          description: request result
+          type: string
+      type: object
+    GetDomainDetails_data:
+      description: Domains
+      example:
+        domain_name: domain_name
+        is_valid: true
+        selector: selector
+        private_key: private_key
+      properties:
+        domain_name:
+          description: Registered domain name
+          type: string
+        selector:
+          description: Name of the DKIM selector for this domain
+          type: string
+        private_key:
+          description: Private key of the DKIM record
+          type: string
+        is_valid:
+          description: Boolean flag indicating whether this DKIM is valid – i.e. private
+            key matches the public key, identified by a selector for this domain
+          type: boolean
+      type: object
+    GetApiKeys_data_items:
+      example:
+        date_created: date_created
+        description: description
+        key: key
+        status: status
+      properties:
+        status:
+          description: Current status of the API key
+          type: string
+        description:
+          description: Description for API key
+          type: string
+        key:
+          description: The actual API key value
+          type: string
+        date_created:
+          description: Timestamp of API key creation
+          type: string
+      type: object
+    GetApiKeys_data:
+      description: API Keys
+      example:
+        items:
+        - date_created: date_created
+          description: description
+          key: key
+          status: status
+        - date_created: date_created
+          description: description
+          key: key
+          status: status
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GetApiKeys_data_items'
+          type: array
+      type: object
+    GetAlertDetails_data:
+      description: Alert
+      example:
+        alert_id: alert_id
+        threshold: "0.5"
+        type: monthly_quota
+      properties:
+        type:
+          description: An alert’s type. Currently only “monthly_quota” is supported
+          enum:
+          - monthly_quota
+          type: string
+        threshold:
+          description: A number which represents a percentage of an account’s monthly
+            quota. Must be decimal between 0 and 1
+          enum:
+          - "0.5"
+          - "0.75"
+          - "0.9"
+          - "1"
+          type: string
+        alert_id:
+          description: alert ID
+          type: string
+      type: object
+    GetAlertResponse_data_items:
+      example:
+        alert_id: alert_id
+        threshold: "0.5"
+        type: monthly_quota
+      properties:
+        type:
+          description: An alert’s type. Currently only “monthly_quota” is supported
+          enum:
+          - monthly_quota
+          type: string
+        threshold:
+          description: A number which represents a percentage of an account’s monthly
+            quota. Must be decimal between 0 and 1
+          enum:
+          - "0.5"
+          - "0.75"
+          - "0.9"
+          - "1"
+          type: string
+        alert_id:
+          description: alert ID
+          type: string
+      type: object
+    GetAlertResponse_data:
+      description: Alert
+      example:
+        items:
+        - alert_id: alert_id
+          threshold: "0.5"
+          type: monthly_quota
+        - alert_id: alert_id
+          threshold: "0.5"
+          type: monthly_quota
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GetAlertResponse_data_items'
+          type: array
+      type: object
+    UpdateAccountResponse_data:
+      description: Account
+      example:
+        account: account
+      properties:
+        account:
+          description: Account Update Status
+          type: string
+      type: object
+    Account_data_address:
+      description: Full address of account owner. See below
+      example:
+        country: country
+        city: city
+        street: street
+        state: state
+      properties:
+        street:
+          description: Account owner’s street address
+          type: string
+        city:
+          description: Account owner’s city
+          type: string
+        state:
+          description: Account owner’s state
+          type: string
+        country:
+          description: Account owner’s country
+          type: string
+      type: object
+    Account_data:
+      description: Account
+      example:
+        date created: 6
+        website: website
+        address:
+          country: country
+          city: city
+          street: street
+          state: state
+        phone: phone
+        company_name: company_name
+        usage: 0
+        last_name: last_name
+        first_name: first_name
+        email: email
+        status: status
+      properties:
+        status:
+          description: Status of the account
+          type: string
+        first_name:
+          description: First name of account owner
+          type: string
+        last_name:
+          description: Last name of account owner
+          type: string
+        phone:
+          description: Phone number of account owner
+          type: string
+        website:
+          description: Website of account owner
+          type: string
+        email:
+          description: Email address of account owner
+          type: string
+        company_name:
+          description: Account owner’s company name
+          type: string
+        address:
+          $ref: '#/components/schemas/Account_data_address'
+        usage:
+          description: Account's usage
+          type: integer
+        date created:
+          description: Account's creation time (in UTC)
+          type: integer
+      type: object
+  securitySchemes:
+    basicAuth:
+      scheme: basic
+      type: http
+    apiID:
+      in: query
+      name: api_key
+      type: apiKey
+    apiKey:
+      in: header
+      name: X-SMTPCOM-API
+      type: apiKey
