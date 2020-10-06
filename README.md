@@ -15,6 +15,9 @@ Import it locally
 import smtp "github.com/smtpcom/smtpcom-go"
 ```
 
+See https://github.com/smtpcom/smtpcom-go/blob/master/examples/mail/mail.go for quickstart.
+
+
 ## Documentation for API Endpoints
 
 All URIs are relative to *https://api.smtp.com*
