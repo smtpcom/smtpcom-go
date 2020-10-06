@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/antihax/optional"
+	smtp "github.com/smtpcom/smtpcom-go"
 	"log"
-)
-import (
-	"smtp"
 )
 
 func main() {
